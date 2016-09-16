@@ -152,14 +152,20 @@ def process_outfile(file, all_fields, fields_req, fields_opt):
 
 
 def get_donor(conn, dir, typedict):
-    donor = False
     if 'donor' in typedict.keys():
-        sql = make_query(conn, 'donor', typedict['donor'], ifields.donor, ifields.spec_req)
-        out = pandas.read_sql(sql, conn)
-        w2 = process_outfile(out, ifields.donor, ifields.donor_req, ifields.donor_opt)
-        w2.to_csv(dir + '/ICGCdonor.tsv', sep='\t', index=False)
-        print 'Donor file written.'
-    return
+        sql = make_query(conn, 'donor', typedict['donor'], ifields.donor, ifields.donor_req)
+        print sql
+    elif 'spec' in typedict.keys():
+        sql = make_query(conn, 'donor', typedict['spec'], ifields.donor, ifields.donor_req)
+    elif 'samp' in typedict.keys():
+        sql = make_query(conn, 'donor', typedict['samp'], ifields.donor, ifields.donor_req)
+    else:
+        return False
+    out = pandas.read_sql(sql, conn)
+    w2 = process_outfile(out, ifields.donor, ifields.donor_req, ifields.donor_opt)
+    w2.to_csv(dir + '/ICGCdonor.tsv', sep='\t', index=False)
+    print 'Donor file written.'
+    return True
 
 
 def get_spec(conn, dir, typedict):
@@ -167,26 +173,38 @@ def get_spec(conn, dir, typedict):
         sql = make_query(conn, 'spec', typedict['spec'], ifields.spec, ifields.spec_req)
     elif 'samp' in typedict.keys():
         sql = make_query(conn, 'spec', typedict['samp'], ifields.spec, ifields.spec_req)
+    elif 'donor' in typedict.keys():
+        sql = make_query(conn, 'spec', typedict['donor'], ifields.spec, ifields.spec_req)
+    else:
+        return False
     out = pandas.read_sql(sql, conn)
     w2 = process_outfile(out, ifields.spec, ifields.spec_req, ifields.spec_opt)
     w2.to_csv(dir + '/ICGCspecimen.tsv', sep='\t', index=False)
     print 'Specimen file written.'
-    return
+    return True
 
 
 def get_samp(conn, dir, typedict):
     if 'samp' in typedict.keys():
         sql = make_query(conn, 'samp', typedict['samp'], ifields.samp, ifields.samp_req)
+    elif 'spec' in typedict.keys():
+        sql = make_query(conn, 'samp', typedict['spec'], ifields.samp, ifields.samp_req)
+    elif 'donor' in typedict.keys():
+        sql = make_query(conn, 'samp', typedict['donor'], ifields.samp, ifields.samp_req)
+    else:
+        return False
     out = pandas.read_sql(sql, conn)
     w2 = process_outfile(out, ifields.samp, ifields.samp_req, ifields.samp_opt)
     w2.to_csv(dir + '/ICGCsample.tsv', sep='\t', index=False)
     print 'Sample file written.'
-    return
+    return True
 
 def get_three_main(conn, dir, typedict):
-    get_donor(conn, dir, typedict)
-    get_spec(conn, dir, typedict)
-    get_samp(conn, dir, typedict)
+    donor = get_donor(conn, dir, typedict)
+    spec = get_spec(conn, dir, typedict)
+    samp = get_samp(conn, dir, typedict)
+    if not (donor and spec and samp):
+        raise RuntimeError('Beware: one or more core files not written.')
     return
 
 if __name__ == "__main__":
