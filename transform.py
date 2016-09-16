@@ -59,7 +59,6 @@ def headers(conn, table):
 
 def merge_tables(name, tables):
     header = []
-    print tables
     for table in tables:
         for head in headers(conn, table):
             for aliases in gfields.aliases:
@@ -151,61 +150,31 @@ def process_outfile(file, all_fields, fields_req, fields_opt):
     return w2
 
 
-def get_donor(conn, dir, typedict):
-    if 'donor' in typedict.keys():
-        sql = make_query(conn, 'donor', typedict['donor'], ifields.donor, ifields.donor_req)
-        print sql
-    elif 'spec' in typedict.keys():
-        sql = make_query(conn, 'donor', typedict['spec'], ifields.donor, ifields.donor_req)
-    elif 'samp' in typedict.keys():
-        sql = make_query(conn, 'donor', typedict['samp'], ifields.donor, ifields.donor_req)
-    else:
+def get_main(conn, filetypeout, filetypeoutname, dir, typedict, order, all_fields, req, opt):
+    for filetype in order:
+        if filetype in typedict.keys():
+            sql = make_query(conn, filetypeout, typedict[filetype], all_fields, req)
+            break
+    if not sql:
         return False
     out = pandas.read_sql(sql, conn)
-    w2 = process_outfile(out, ifields.donor, ifields.donor_req, ifields.donor_opt)
-    w2.to_csv(dir + '/ICGCdonor.tsv', sep='\t', index=False)
-    print 'Donor file written.'
+    w2 = process_outfile(out, all_fields, req, opt)
+    w2.to_csv(dir + '/ICGC' + filetypeoutname.lower() + '.tsv', sep='\t', index=False)
+    print filetypeoutname + ' file written.'
     return True
 
-
-def get_spec(conn, dir, typedict):
-    if 'spec' in typedict.keys():
-        sql = make_query(conn, 'spec', typedict['spec'], ifields.spec, ifields.spec_req)
-    elif 'samp' in typedict.keys():
-        sql = make_query(conn, 'spec', typedict['samp'], ifields.spec, ifields.spec_req)
-    elif 'donor' in typedict.keys():
-        sql = make_query(conn, 'spec', typedict['donor'], ifields.spec, ifields.spec_req)
-    else:
-        return False
-    out = pandas.read_sql(sql, conn)
-    w2 = process_outfile(out, ifields.spec, ifields.spec_req, ifields.spec_opt)
-    w2.to_csv(dir + '/ICGCspecimen.tsv', sep='\t', index=False)
-    print 'Specimen file written.'
-    return True
-
-
-def get_samp(conn, dir, typedict):
-    if 'samp' in typedict.keys():
-        sql = make_query(conn, 'samp', typedict['samp'], ifields.samp, ifields.samp_req)
-    elif 'spec' in typedict.keys():
-        sql = make_query(conn, 'samp', typedict['spec'], ifields.samp, ifields.samp_req)
-    elif 'donor' in typedict.keys():
-        sql = make_query(conn, 'samp', typedict['donor'], ifields.samp, ifields.samp_req)
-    else:
-        return False
-    out = pandas.read_sql(sql, conn)
-    w2 = process_outfile(out, ifields.samp, ifields.samp_req, ifields.samp_opt)
-    w2.to_csv(dir + '/ICGCsample.tsv', sep='\t', index=False)
-    print 'Sample file written.'
-    return True
 
 def get_three_main(conn, dir, typedict):
-    donor = get_donor(conn, dir, typedict)
-    spec = get_spec(conn, dir, typedict)
-    samp = get_samp(conn, dir, typedict)
+    donor = get_main(conn, 'donor', 'Donor', dir, typedict, ('donor', 'spec', 'samp'), ifields.donor, ifields.donor_req,
+                     ifields.donor_opt)
+    spec = get_main(conn, 'spec', 'Specimen', dir, typedict, ('spec', 'samp', 'donor'), ifields.spec, ifields.spec_req,
+                    ifields.spec_opt)
+    samp = get_main(conn, 'samp', 'Sample', dir, typedict, ('samp', 'spec', 'donor'), ifields.samp, ifields.samp_req,
+                    ifields.samp_opt)
     if not (donor and spec and samp):
         raise RuntimeError('Beware: one or more core files not written.')
     return
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Transform input TSVs into ICGC portal ready format.")
@@ -233,4 +202,3 @@ if __name__ == "__main__":
                         else:
                             num_filetypes[filetype[0]] = [re.sub('\..*$', '', table)]
         get_three_main(conn, p.out, num_filetypes)
-
