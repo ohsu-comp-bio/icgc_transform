@@ -1,0 +1,13 @@
+# Data directory
+/tsvs
+
+# Compiled Python
+*.pyc
+
+# IntelliJ
+*.iml
+
+# Emacs
+*~
+\#~
+
