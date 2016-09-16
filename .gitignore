@@ -5,6 +5,7 @@
 *.pyc
 
 # IntelliJ
+.idea/
 *.iml
 
 # Emacs
