@@ -5,7 +5,6 @@ import argparse
 import re
 import icgc_fields as ifields
 import generic_fields as gfields
-import sys
 
 
 def get_key(conn, table):
@@ -57,7 +56,7 @@ def headers(conn, table):
     return headers
 
 
-def merge_tables(name, tables):
+def merge_tables(name, tables, drop=True):
     header = []
     for table in tables:
         for head in headers(conn, table):
@@ -79,10 +78,11 @@ def merge_tables(name, tables):
     sql = "insert into {} ({}) select {} from {} union select {} from {}".format(name, h_str, hlist[0][1], hlist[0][0],
                                                                                  hlist[1][1], hlist[1][0])
     conn.execute(sql)
-    for table in tables:
-        sql = 'drop table if exists {}'.format(table)
-        conn.execute(sql)
-    return [name]
+    if drop:
+        for table in tables:
+            sql = 'drop table if exists {}'.format(table)
+            conn.execute(sql)
+    return name
 
 
 def check_merge_header(head, header):
@@ -96,42 +96,36 @@ def check_merge_header(head, header):
     return "Null"
 
 
-def make_query(conn, filetypeout, tables, all_fields, req):
+def make_query(conn, order, filetype, typedict, all_fields, req):
     fields = []
-    a = []
-    b = []
-    for table in tables:
-        h = headers(conn, table)
-        for i in range(len(h)):
-            if h[i] in ifields.aliases:
-                k = ifields.aliases[h[i]]
-                if k in all_fields and k not in a:
-                    t = table + '.' + h[i] + ' as ' + k
-                    a.append(k)
-                    fields.append(t)
-                    if table not in b:
-                        b.append(table)
-    fields_str = ", ".join(fields)
+    grabbed_headers = []
+    grab_tables = []
+    for ord in order:
+        if ord in typedict:
+            table = typedict[ord]
+            h = headers(conn, table)
+            for i in range(len(h)):
+                if h[i] in ifields.aliases:
+                    k = ifields.aliases[h[i]]
+                    if k in all_fields and k not in grabbed_headers:
+                        grabbed_headers.append(k)
+                        fields.append(table + '.' + h[i] + ' as ' + k)
+                        if table not in grab_tables:
+                            grab_tables.append(table)
     for req_f in req:
-        if req_f not in fields_str:
-            if req_f in ifields.unique[filetypeout]:
+        if req_f not in grabbed_headers and req_f == ifields.unique[filetype]:
+            for table in grab_tables:
                 key = get_key(conn, table)
-                if len(key) > 1:
-                    fields_str += ', ' + ' || '.join(
-                        'ifnull(' + table + '.' + piece + ', "")' for piece in key) + ' as ' + req_f
-    table_join = ''
-    for i in range(len(b)):
-        key = get_key(conn, b[i])
-        for j in range(len(key)):
-            if len(b) == 1:
-                table_join += b[i]
-                break
-            elif i == 0:
-                table_join += b[i]
-            else:
-                table_join += ' join ' + b[i] + ' on ' + b[i - 1] + '.' + key[j] + '=' + b[i] + '.' + key[j]
-    sql = "select distinct {} from {}".format(fields_str, table_join)
-    return sql
+                if len(key) == 1:
+                    fields.append(key[0] + ' as ' + req_f)
+                elif len(key) > 1:
+                    fields.append(' || '.join('ifnull(' + table + '.' + s + ', "")' for s in key) + ' as ' + req_f)
+    fields = ", ".join(fields)
+    while len(grab_tables) > 1:
+        # Note: This while is untested. It is meant to deal with the issues of pulling data from more than one table.
+        grab_tables[0] = merge_tables('merge', [grab_tables[0], grab_tables[1]], drop=False)
+        grab_tables.remove(grab_tables[1])
+    return "select distinct {} from {}".format(fields, grab_tables[0])
 
 
 def process_outfile(file, all_fields, fields_req, fields_opt):
@@ -150,26 +144,26 @@ def process_outfile(file, all_fields, fields_req, fields_opt):
     return w2
 
 
-def get_main(conn, filetypeout, filetypeoutname, dir, typedict, order, all_fields, req, opt):
+def get_main(conn, filename, dir, typedict, order, all_fields, req, opt):
     for filetype in order:
         if filetype in typedict.keys():
-            sql = make_query(conn, filetypeout, typedict[filetype], all_fields, req)
+            sql = make_query(conn, order, filetype, typedict, all_fields, req)
             break
     if not sql:
         return False
     out = pandas.read_sql(sql, conn)
     w2 = process_outfile(out, all_fields, req, opt)
-    w2.to_csv(dir + '/ICGC' + filetypeoutname.lower() + '.tsv', sep='\t', index=False)
-    print filetypeoutname + ' file written.'
+    w2.to_csv(dir + '/ICGC' + filename.lower() + '.tsv', sep='\t', index=False)
+    print filename + ' file written.'
     return True
 
 
 def get_three_main(conn, dir, typedict):
-    donor = get_main(conn, 'donor', 'Donor', dir, typedict, ('donor', 'spec', 'samp'), ifields.donor, ifields.donor_req,
+    donor = get_main(conn, 'Donor', dir, typedict, ('donor', 'spec', 'samp'), ifields.donor, ifields.donor_req,
                      ifields.donor_opt)
-    spec = get_main(conn, 'spec', 'Specimen', dir, typedict, ('spec', 'samp', 'donor'), ifields.spec, ifields.spec_req,
+    spec = get_main(conn, 'Specimen', dir, typedict, ('spec', 'samp', 'donor'), ifields.spec, ifields.spec_req,
                     ifields.spec_opt)
-    samp = get_main(conn, 'samp', 'Sample', dir, typedict, ('samp', 'spec', 'donor'), ifields.samp, ifields.samp_req,
+    samp = get_main(conn, 'Sample', dir, typedict, ('samp', 'spec', 'donor'), ifields.samp, ifields.samp_req,
                     ifields.samp_opt)
     if not (donor and spec and samp):
         raise RuntimeError('Beware: one or more core files not written.')
@@ -190,15 +184,14 @@ if __name__ == "__main__":
         p.out = p.dir.strip('/')
 
     with sqlite3.connect(p.db) as conn:
-        num_filetypes = {}
+        typedict = {}
         for table in listdir(p.dir):
             for filetype in ifields.file_aliases:
                 for filealias in filetype:
                     if filealias in table:
                         load(conn, table, p.dir.strip('/'))
-                        if filealias in num_filetypes:
-                            num_filetypes[filetype[0]].append(re.sub('\..*$', '', table))
-                            num_filetypes[filetype[0]] = merge_tables(filetype[0], num_filetypes[filetype[0]])
+                        if filealias in typedict:
+                            typedict[filetype[0]] = merge_tables(filetype[0], [typedict[filetype[0]], re.sub('\..*$', '', table)])
                         else:
-                            num_filetypes[filetype[0]] = [re.sub('\..*$', '', table)]
-        get_three_main(conn, p.out, num_filetypes)
+                            typedict[filetype[0]] = re.sub('\..*$', '', table)
+        get_three_main(conn, p.out, typedict)
