@@ -1,3 +1,4 @@
+import time
 from os import listdir
 import pandas
 import sqlite3
@@ -5,6 +6,9 @@ import argparse
 import re
 import icgc_fields as ifields
 import generic_fields as gfields
+import controlled_vocab as cvocab
+import sys
+import itertools
 
 
 def get_key(conn, table):
@@ -12,19 +16,15 @@ def get_key(conn, table):
     sql = 'select count(*) from {}'.format(table)
     for i in conn.execute(sql):
         total_rows = i[0]
-    for header in h:
-        sql = 'select count(distinct {}) from {}'.format(header, table)
-        for j in conn.execute(sql):
-            if j[0] == total_rows:
-                return header,
-    for i in range(len(h)):
-        j = i + 1
-        while j < len(h):
-            sql = 'select count(*) from (select distinct {}, {} from {})'.format(h[i], h[j], table)
+    pieces = 1
+    while pieces <= len(h):
+        comp = (i for i in itertools.combinations(h, pieces))
+        for x in comp:
+            sql = 'select count(*) from (select distinct {} from {})'.format(', '.join(item for item in x), table)
             for count in conn.execute(sql):
                 if count[0] == total_rows:
-                    return h[i], h[j]
-            j += 1
+                    return x
+        pieces += 1
 
 
 def load(conn, file, dir):
@@ -133,10 +133,14 @@ def process_outfile(file, all_fields, fields_req, fields_opt):
         if all_fields[i] not in file.columns.values.tolist():
             file.insert(i, all_fields[i], value='', allow_duplicates=False)
     w2 = file.reindex(columns=all_fields)
+    w2 = cvocab.specimen_type(all_fields, w2)
+    w2 = cvocab.donor_sex(all_fields, w2)
+    w2 = cvocab.donor_vital_status(all_fields, w2)
     for i in all_fields:
         if i in fields_req:
             if i == 'specimen_type':
-                w2[i] = w2[i].replace(to_replace=['', None], value='UNKNOWN')
+                # w2[i] = w2[i].replace(to_replace=['', None], value='UNKNOWN')
+                pass
             else:
                 w2 = w2[pandas.notnull(w2[i])]
         elif i not in fields_opt:
@@ -144,32 +148,36 @@ def process_outfile(file, all_fields, fields_req, fields_opt):
     return w2
 
 
-def get_main(conn, filename, dir, typedict, order, all_fields, req, opt):
+def get_main(conn, filename, dir, project, typedict, order, all_fields, req, opt):
     for filetype in order:
         if filetype in typedict.keys():
             sql = make_query(conn, order, filetype, typedict, all_fields, req)
             break
+            # filetype: donor, samp, etc.
+            # all_fields: the donor, samp, etc. arrays from ifields
+            # req: the donor_req, etc. arrays from ifields
     if not sql:
         return False
     out = pandas.read_sql(sql, conn)
     w2 = process_outfile(out, all_fields, req, opt)
-    w2.to_csv(dir + '/ICGC' + filename.lower() + '.tsv', sep='\t', index=False)
-    print filename + ' file written.'
+    w2.to_csv(dir + '/' + filename + '.' + project + '.txt', sep='\t', index=False)
+    print filename.capitalize() + ' file written.'
     return True
 
 
-def get_three_main(conn, dir, typedict):
-    donor = get_main(conn, 'Donor', dir, typedict, ('donor', 'spec', 'samp'), ifields.donor, ifields.donor_req,
+def get_three_main(conn, dir, project, typedict):
+    donor = get_main(conn, 'donor', dir, project, typedict, ('donor', 'spec', 'samp'), ifields.donor, ifields.donor_req,
                      ifields.donor_opt)
-    spec = get_main(conn, 'Specimen', dir, typedict, ('spec', 'samp', 'donor'), ifields.spec, ifields.spec_req,
+    spec = get_main(conn, 'specimen', dir, project, typedict, ('spec', 'samp', 'donor'), ifields.spec, ifields.spec_req,
                     ifields.spec_opt)
-    samp = get_main(conn, 'Sample', dir, typedict, ('samp', 'spec', 'donor'), ifields.samp, ifields.samp_req,
+    samp = get_main(conn, 'sample', dir, project, typedict, ('samp', 'spec', 'donor'), ifields.samp, ifields.samp_req,
                     ifields.samp_opt)
     if not (donor and spec and samp):
         raise RuntimeError('Beware: one or more core files not written.')
     return
 
 
+start_time = time.clock()
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Transform input TSVs into ICGC portal ready format.")
     p.add_argument('-i', '--input', action='store', dest='dir',
@@ -178,6 +186,8 @@ if __name__ == "__main__":
                    help='Created TSVs output directory. Defaults to input directory')
     p.add_argument('-d', '--database', action='store', dest='db', default=':memory:',
                    help='Option to store sqlite database of input data to file.')
+    p.add_argument('-p', '--project', action='store', dest='project', default='PROJECT',
+                   help='Project name.')
     p = p.parse_args()
 
     if not p.out:
@@ -194,4 +204,6 @@ if __name__ == "__main__":
                             typedict[filetype[0]] = merge_tables(filetype[0], [typedict[filetype[0]], re.sub('\..*$', '', table)])
                         else:
                             typedict[filetype[0]] = re.sub('\..*$', '', table)
-        get_three_main(conn, p.out, typedict)
+        get_three_main(conn, p.out, p.project, typedict)
+
+print time.clock() - start_time, 'seconds'
