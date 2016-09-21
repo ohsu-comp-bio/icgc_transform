@@ -11,7 +11,7 @@ aliases = {
     'specimen_type' : 'specimen_type',
     'processing' : 'specimen_processing',
     'cell_viability' : 'percentage_cellularity',
-    'cell_concentration' : 'level_of_cellularity',
+    # 'cell_concentration' : 'level_of_cellularity',
     'sampleId' : 'specimen_id'
 }
 

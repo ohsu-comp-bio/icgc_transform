@@ -1,6 +1,10 @@
 import pandas
 
 
+
+
+
+
 def donor_sex(headers, frame):
     if 'donor_sex' in headers:
         frame['donor_sex'] = frame['donor_sex'].replace(to_replace=['M', 'Male'], value='1')
@@ -123,6 +127,9 @@ def specimen_available(headers, frame):
     '1 yes'
     '2 no'
 
+
+#####
+
 def level_of_cellularity(headers, frame):
     '1 1-20%'
     '2 21-40%'
@@ -132,3 +139,7 @@ def level_of_cellularity(headers, frame):
 
 def study(headers, frame):
     '1 PCAWG'
+
+def sample():
+    level_of_cellularity()
+    study()
