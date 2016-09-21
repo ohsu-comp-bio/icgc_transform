@@ -222,7 +222,7 @@ def get_main(conn, filename, dir, project, typedict, order, all_fields, req, opt
 
 
             if change:
-                sql2 = 'update {} set {}={} where {}={}'.format(filename, all_fields[i], change, key_col, key)
+                sql2 = "update {} set {}='{}' where {}='{}'".format(filename, all_fields[i], change, key_col, key)
               #  print sql2
                 conn.execute(sql2)
     #     if k >= 5:
@@ -230,10 +230,9 @@ def get_main(conn, filename, dir, project, typedict, order, all_fields, req, opt
     #     k += 1
     # print '\n'
     fsql = 'select {} from {}'.format('*', filename)
-
-    # w2 = process_outfile(out, all_fields, req, opt)
-    # w2.to_csv(dir + '/' + filename + '.' + project + '.txt', sep='\t', index=False)
-    # print filename.capitalize() + ' file written.'
+    out = pandas.read_sql(fsql, conn)
+    out.to_csv(dir + '/' + filename + '.' + project + '.txt', sep='\t', index=False)
+    print filename.capitalize() + ' file written.'
     return True
 
 
